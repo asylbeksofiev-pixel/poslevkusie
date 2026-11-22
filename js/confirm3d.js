@@ -130,6 +130,12 @@ export function rulesFor(day) {
   // причина выбора приёма — те же оси, по которым его выбирает mood.js
   const why = { monet: 'тепло и покой', matisse: 'радость и энергия', kandinsky: 'напряжение', ma: 'тишина и грусть', film: 'ностальгия', collage: 'много людей и событий' }[sp.mode];
   out.push([why, `приём «${MODES[sp.mode].name}» — ${MODES[sp.mode].ref.split(',')[0]}`]);
+  // жанр и эпоха песни: тепло палитры и плёночное зерно
+  const warm = m.warm || 0;
+  if (m.era || Math.abs(warm) > 0.1) {
+    const label = [Math.abs(warm) > 0.1 || m.era ? m.genre : '', m.era ? `${m.era} г.` : ''].filter(Boolean).join(', ');
+    out.push([label || 'жанр', `зерно ${Math.round(sp.grain * 100)}%${warm > 0.1 ? ', палитра теплее' : warm < -0.1 ? ', палитра холоднее' : ''}${m.era && m.era < 1995 ? ' — песня старше 1995' : ''}`]);
+  }
   return out;
 }
 function finalHTML(day) {
