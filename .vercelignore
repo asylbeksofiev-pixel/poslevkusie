@@ -1,0 +1,5 @@
+docs/presentation
+*.pptx
+node_modules
+.agents
+.claude
