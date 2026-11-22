@@ -5,12 +5,13 @@ import { analyzeAudio, clipAudio } from './analyze/audio.js';
 import { musicFromMeta, parseSongMeta, embedFor } from './analyze/music-meta.js';
 import { buildSpec } from './mood.js';
 import { makeTitle, folderName } from './title.js';
-import { Memory, W, H } from './render/engine.js';
+import { Memory, W, H, SCALE } from './render/engine.js';
 import { db } from './db.js';
 
 export const STEPS = ['Читаю запись', 'Смотрю на фотографии', 'Слушаю песню', 'Свожу настроение и выбираю приём', 'Придумываю название дня', 'Пишу страницу дневника'];
 
-export async function createDay({ date, text, photos, song }, onStep = () => {}) {
+// onStep по умолчанию уступает поток браузеру между шагами: сборка демо-дневника не «вешает» страницу
+export async function createDay({ date, text, photos, song }, onStep = () => new Promise(r => setTimeout(r, 0))) {
   const id = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   await onStep(0);
   const textA = analyzeText(text, date);
@@ -79,9 +80,9 @@ export function songLabel(song) {
 
 export async function renderCover(day) {
   const mem = await new Memory(day, { index: day.n || 1 }).prepare();
-  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const c = document.createElement('canvas'); c.width = W * SCALE; c.height = H * SCALE;
   mem.draw(c.getContext('2d'), coverTime(day), 0);
-  return new Promise(r => c.toBlob(r, 'image/jpeg', 0.88));
+  return new Promise(r => c.toBlob(r, 'image/jpeg', 0.92));
 }
 
 // момент для обложки: после вступления, в середине кадра (не на переходе)

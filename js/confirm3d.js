@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { MODES } from './mood.js';
 import { fmtDate, weekday } from './util.js';
+import { sfx } from './sfx.js';
 
 const BG = 0x07070a;
 const CW = 1.9, CH = 2.62, CT = 0.026;        // открытка: ширина, высота, толщина створки
@@ -120,7 +121,7 @@ function glowCanvas() {
 }
 
 // ---------- текстовая часть финала ----------
-function rulesFor(day) {
+export function rulesFor(day) {
   const sp = day.spec, m = day.analysis.music;
   const minor = m.mode !== 'major';
   const out = [];
@@ -237,6 +238,8 @@ export class ConfirmExperience {
       .to(S, { fan: 1, duration: 1.5, ease: 'power2.out' }, 3.35)
       .to(S, { move: 1, duration: 1.7, ease: 'power3.inOut' }, 4.2)
       .to(S, { out: 1, duration: 1.4, ease: 'power2.in' }, 4.3)
+      .call(() => sfx('open'), null, 1.35)
+      .call(() => sfx('reveal'), null, 2.7)
       .call(() => this.showText(), null, 5.15);
     // темп сцены следует за днём: спокойный день раскрывается медленнее, энергичный — быстрее
     tl.timeScale(Math.min(1.15, Math.max(0.86, 0.8 + day.spec.motion * 0.4)));

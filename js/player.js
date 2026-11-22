@@ -17,7 +17,8 @@ export class Player {
   }
   still(t) { if (t == null) { const seg = this.day.spec.beatsPerPhoto * 60 / this.day.analysis.music.bpm; const t0 = Math.max(4.2, Math.min(this.duration * 0.4, 6)); t = (Math.floor(t0 / seg) + 0.45) * seg; } this.mem.draw(this.ctx, t, 0); }
 
-  async play({ record = false } = {}) {
+  // audioStream — звук вкладки (для песни по ссылке: встроенный плеер нельзя подключить к Web Audio напрямую)
+  async play({ record = false, audioStream = null } = {}) {
     this.stop(true);
     await this.loadAudio();
     const ac = audioCtx(); await ac.resume();
@@ -36,6 +37,8 @@ export class Player {
     if (record) {
       const stream = this.canvas.captureStream(30);
       if (this.buffer) { this.dest = ac.createMediaStreamDestination(); this.gain.connect(this.dest); this.dest.stream.getAudioTracks().forEach(tr => stream.addTrack(tr)); }
+      else if (audioStream) audioStream.getAudioTracks().forEach(tr => stream.addTrack(tr));
+      this.recHasAudio = stream.getAudioTracks().length > 0;
       const types = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm', 'video/mp4'];
       const mime = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
       this.rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 });

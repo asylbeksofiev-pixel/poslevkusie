@@ -7,9 +7,13 @@ import { mountEmbed, parseSongUrl } from './embeds.js';
 import { MODES } from './mood.js';
 import { DEMO_DAYS, buildDemoInputs } from './demo.js';
 import { resizeImageBlob, fmtDate, weekday } from './util.js';
-import { renderSystemDoc } from './system-doc.js';
+import { renderSystemDoc, mountSystem } from './system-doc.js';
 import { Hero3D, webglOK } from './hero3d.js';
-import { ConfirmExperience } from './confirm3d.js';
+import { ConfirmExperience, rulesFor } from './confirm3d.js';
+import { analyzeText } from './analyze/text.js';
+import { analyzePhoto, aggregatePhotos } from './analyze/image.js';
+import { parseSongMeta } from './analyze/music-meta.js';
+import { sfx } from './sfx.js';
 import { initMotion, enterHome, leaveHome, scrollTop, onScroll, tilt, refreshScroll } from './motion.js';
 
 const $ = s => document.querySelector(s);
@@ -36,14 +40,17 @@ async function route() {
   if ('speechSynthesis' in window) speechSynthesis.cancel();
   const h = location.hash.replace(/^#/, '') || '/';
   const [, a, b] = h.split('/');
-  if (!a) { show('home'); const all = await renderHome(); const wd = all.find(d => d.spec.mode === 'kandinsky') || all[0]; enterHome(wd && { sig: wd.analysis.music.signature, bpm: wd.analysis.music.bpm, title: wd.title }); }
+  if (!a) { show('home'); const all = await renderHome(); if (location.hash.replace(/^#/, '') && location.hash !== '#/') return; scrollTop(); const wd = all.find(d => d.spec.mode === 'kandinsky') || all[0]; enterHome(wd && { sig: wd.analysis.music.signature, bpm: wd.analysis.music.bpm, title: wd.title }); }
   else if (a === 'diary') { show('archive'); renderArchive(); }
   else if (a === 'new') { show('new'); resetForm(); }
-  else if (a === 'system') { show('system'); $('#system-doc').innerHTML = renderSystemDoc(); }
+  else if (a === 'system') { show('system'); const days = await db.all(); const box = $('#system-doc'); box.innerHTML = renderSystemDoc(days, urlFor); mountSystem(box); tilt(box, '.sy-mode'); }
   else if (a === 'day' && b) { show('day'); renderDay(b); }
   else { location.hash = '#/'; }
 }
 window.addEventListener('hashchange', route);
+// Прокруткой управляем сами: иначе при «назад» браузер возвращает середину главной,
+// и анимации по скроллу (заголовок, галерея приёмов) оказываются в промежуточном состоянии.
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
 // ---------------- демо-дневник ----------------
 let demoBuilding = null;
@@ -117,8 +124,8 @@ async function renderArchive() {
   if (!demoBuilding) $('#archive-count').textContent = all.length ? `${all.length} ${plural(all.length, ['день', 'дня', 'дней'])} · ${list.length !== all.length ? `найдено ${list.length}` : 'листайте ленту — каждый день узнаваемо свой'}` : '';
   const modesUsed = [...new Set(all.map(d => d.spec.mode))];
   $('#mood-filter').innerHTML = modesUsed.length > 1 ? [`<button class="chip ${!moodFilter ? 'active' : ''}" data-m="">все</button>`, ...modesUsed.map(m => `<button class="chip ${moodFilter === m ? 'active' : ''}" data-m="${m}">${MODES[m].label}</button>`)].join('') : '';
-  $('#archive-grid').innerHTML = list.map(d => `
-    <a class="card" href="#/day/${d.id}">
+  $('#archive-grid').innerHTML = list.map((d, i) => `
+    <a class="card" href="#/day/${d.id}" style="--i:${Math.min(i, 12)}">
       <div class="cover"><img loading="lazy" src="${urlFor(d.cover)}" alt="${esc(d.title)}"></div>
       <div class="meta"><div class="d frame">кадр ${String(d.n || 0).padStart(3, '0')} ▸ ${d.spec.label}</div><div class="t">${esc(d.title)}</div><div class="d">${fmtDate(d.date)}</div></div>
     </a>`).join('') + (demoBuilding ? `<div class="card"><div class="cover skeleton"></div><div class="meta"><div class="t muted">собираю…</div></div></div>` : '');
@@ -136,6 +143,7 @@ $('#btn-demo').addEventListener('click', async () => { $('#btn-demo').disabled =
 let formPhotos = [], formAudio = null, songTab = 'file';
 function resetForm() {
   $('#new-form').classList.remove('hidden'); $('#progress').classList.add('hidden');
+  goStep(1, true);
   if (!$('#f-date').value) $('#f-date').value = new Date().toISOString().slice(0, 10);
   $$('.err').forEach(e => e.remove()); $$('.field.invalid').forEach(f => f.classList.remove('invalid'));
 }
@@ -146,9 +154,80 @@ async function addPhotos(files) {
   const imgs = [...files].filter(f => f.type.startsWith('image/'));
   for (const f of imgs) { if (formPhotos.length >= 8) { toast('Не больше 8 фото на день'); break; } try { formPhotos.push(await resizeImageBlob(f)); } catch { toast(`Не удалось открыть ${f.name}`); } }
   renderThumbs();
+  livePhotos();
 }
 $('#f-photos').addEventListener('change', e => { addPhotos(e.target.files); e.target.value = ''; });
-$('#photo-thumbs').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; formPhotos.splice(+b.dataset.i, 1); renderThumbs(); });
+$('#photo-thumbs').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; formPhotos.splice(+b.dataset.i, 1); renderThumbs(); livePhotos(); });
+
+// ---------- шаги записи: слова → свет → звук ----------
+let curStep = 1;
+function goStep(n, instant) {
+  const prev = curStep; curStep = n;
+  $$('.step').forEach(st => {
+    const k = +st.dataset.step;
+    st.classList.toggle('on', k === n);
+    st.classList.toggle('before', k < n);
+    st.classList.toggle('after', k > n);
+    if (instant) st.classList.add('instant'); else st.classList.remove('instant');
+  });
+  $$('#stepper li').forEach(li => { const k = +li.dataset.s; li.classList.toggle('on', k === n); li.classList.toggle('done', k < n); });
+  $('#btn-back').hidden = n === 1;
+  $('#btn-next').classList.toggle('hidden', n === 3);
+  $('#btn-create').classList.toggle('hidden', n !== 3);
+  if (!instant && prev !== n) { sfx('step'); const f = $(`.step[data-step="${n}"] textarea, .step[data-step="${n}"] .drop, .step[data-step="${n}"] .tabs button.active`); setTimeout(() => f && f.focus({ preventScroll: true }), 380); }
+}
+function stepValid(n) {
+  $$('.err').forEach(x => x.remove()); $$('.field.invalid').forEach(f => f.classList.remove('invalid'));
+  if (n === 1) {
+    let ok = true;
+    if (!$('#f-date').value) { fieldErr($('#f-date'), 'Укажите дату'); ok = false; }
+    if ($('#f-text').value.trim().length < 20) { fieldErr($('#f-text'), 'Хотя бы пару предложений — из них система поймёт настроение'); ok = false; }
+    return ok;
+  }
+  if (n === 2 && !formPhotos.length) { fieldErr($('#photo-drop'), 'Добавьте хотя бы одну фотографию дня'); return false; }
+  return true;
+}
+$('#btn-next').addEventListener('click', () => { if (stepValid(curStep)) goStep(curStep + 1); else sfx('error'); });
+$('#btn-back').addEventListener('click', () => goStep(curStep - 1));
+$('#stepper').addEventListener('click', e => { const li = e.target.closest('li'); if (!li) return; const k = +li.dataset.s; if (k < curStep || [...Array(k - 1).keys()].every(i => stepValid(i + 1))) goStep(k); });
+
+// ---------- живой отклик: что система уже «слышит» ----------
+const SEASON_RU = { autumn: 'осень', winter: 'зима', spring: 'весна', summer: 'лето' };
+const WEATHER_RU = { rain: 'дождь', snow: 'снег', sun: 'солнце', fog: 'туман', leaves: 'листья', wind: 'ветер', storm: 'гроза', heat: 'жара', cold: 'холод' };
+function liveText() {
+  const box = $('#live-text .live-body'), v = $('#f-text').value.trim();
+  if (v.length < 12) { box.innerHTML = 'начните писать…'; box.classList.add('muted'); return; }
+  let a; try { a = analyzeText(v, $('#f-date').value || new Date().toISOString().slice(0, 10)); } catch { return; }
+  const chip = (t, cls = '') => `<span class="lchip ${cls}">${esc(t)}</span>`;
+  const mood = [];
+  if (a.valence > 0.2) mood.push(chip('приятно', 'warm')); else if (a.valence < -0.2) mood.push(chip('грустно', 'cool'));
+  if (a.arousal > 0.25) mood.push(chip('энергично', 'warm')); else if (a.arousal < -0.25) mood.push(chip('спокойно', 'cool'));
+  if (a.tension > 0.3) mood.push(chip('напряжение', 'hot'));
+  if (a.nostalgia > 0.3) mood.push(chip('ностальгия'));
+  if (a.social > 0.35) mood.push(chip('люди рядом'));
+  const ctx = [a.place && a.place.nom, a.seasonFromText && SEASON_RU[a.season], ...(a.weather || []).map(w => WEATHER_RU[w] || w)].filter(Boolean);
+  const words = [...new Set(a.hits || [])].slice(0, 5);
+  box.classList.remove('muted');
+  box.innerHTML = [...mood, ...ctx.map(c => chip(c, 'ctx')), ...words.map(w => chip('«' + w + '»', 'word'))].join('') || '<span class="muted">пока нейтрально — добавьте ощущений</span>';
+}
+let liveT = 0;
+$('#f-text').addEventListener('input', () => { clearTimeout(liveT); liveT = setTimeout(liveText, 180); });
+let livePhotoRun = 0;
+async function livePhotos() {
+  const box = $('#live-photo .live-body'), run = ++livePhotoRun;
+  if (!formPhotos.length) { box.innerHTML = 'появится из ваших снимков'; box.classList.add('muted'); return; }
+  try {
+    const list = []; for (const p of formPhotos) list.push(await analyzePhoto(p));
+    if (run !== livePhotoRun) return;
+    const ag = aggregatePhotos(list);
+    box.classList.remove('muted');
+    box.innerHTML = `<span class="lpal">${ag.palette.map(c => `<i style="background:rgb(${c.rgb.map(Math.round).join(',')})"></i>`).join('')}</span><span class="lchip ctx">${ag.brightness > 0.55 ? 'светлые' : ag.brightness < 0.35 ? 'тёмные' : 'мягкий свет'}</span><span class="lchip ${ag.warmth > 0.1 ? 'warm' : ag.warmth < -0.1 ? 'cool' : ''}">${ag.warmth > 0.1 ? 'тёплые' : ag.warmth < -0.1 ? 'холодные' : 'нейтральные'}</span>`;
+  } catch {}
+}
+$('#f-songmeta').addEventListener('input', () => {
+  const m = parseSongMeta($('#f-songmeta').value); const box = $('#link-info');
+  if ($('#f-songmeta').value.trim().length > 3 && songTab === 'link' && box && !$('#f-link').value) box.textContent = `Похоже на: ${m.genre}${m.era ? ', ' + m.era + ' г.' : ''} · ~${m.bpm} BPM`;
+});
 const drop = $('#photo-drop');
 ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
 ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
@@ -173,6 +252,7 @@ $('#song-tabs').addEventListener('click', e => {
 function fieldErr(el, msg) { const f = el.closest('.field') || el.parentElement; f.classList.add('invalid'); const p = document.createElement('p'); p.className = 'err'; p.textContent = msg; f.appendChild(p); }
 $('#new-form').addEventListener('submit', async e => {
   e.preventDefault();
+  if (curStep < 3) { if (stepValid(curStep)) goStep(curStep + 1); return; } // Enter на первых шагах — «дальше»
   $$('.err').forEach(x => x.remove()); $$('.field.invalid').forEach(f => f.classList.remove('invalid'));
   const text = $('#f-text').value.trim(), date = $('#f-date').value;
   let ok = true;
@@ -191,7 +271,8 @@ $('#new-form').addEventListener('submit', async e => {
     else if (!meta) { fieldErr($('#f-songmeta'), 'Для ссылки опишите песню: исполнитель — название, жанр, год'); ok = false; }
     else song = { kind: 'link', url, meta, hints: { energy: $('#f-energy').value, mode: $('#f-mode').value } };
   }
-  if (!ok) { $('.field.invalid')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  if (!ok) { const bad = $('.field.invalid'); const st = bad && bad.closest('.step'); if (st) goStep(+st.dataset.step); sfx('error'); bad?.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  sfx('confirm');
 
   // проявка дня: загрузка по настоящим шагам конвейера → открытка → отпечаток дня → итог
   const exp = new ConfirmExperience({ steps: STEPS });
@@ -234,6 +315,8 @@ async function renderDay(id) {
   $('#d-text').textContent = day.text;
   $('#d-photos').innerHTML = day.photos.map(p => `<img src="${urlFor(p)}" alt="">`).join('');
   $('#d-explain').innerHTML = sp.explain.map(e => `<li><span class="ico">${e.ico}</span><span>${e.html}</span></li>`).join('');
+  $('#d-rules').innerHTML = rulesFor(day).map(([x, y]) => `<li><span>${esc(x)}</span><i>→</i><span>${esc(y)}</span></li>`).join('');
+  $('.d-more').open = false;
   $('#d-palette').innerHTML = sp.palette.map(c => `<div style="background:${c}"><span>${c}</span></div>`).join('');
   $('#stage-glow').style.background = `radial-gradient(circle, ${sp.palette[0]}, ${rgbHex(sp.accent)} 60%, transparent 75%)`;
   const v = pickVoice(sp.voice.prefer);
@@ -313,15 +396,30 @@ async function recordVideo(day) {
   if (day.video) return day.video;
   if (!window.MediaRecorder) throw new Error('браузер не умеет записывать видео');
   player.stop();
+  // Песня по ссылке играет во встроенном плеере сервиса: его звук недоступен странице напрямую.
+  // Единственный честный способ записать его — разрешить запись звука этой вкладки.
+  let tabAudio = null;
+  if (day.song.kind === 'link') {
+    const can = navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia;
+    const ok = can && confirm(['Песня добавлена ссылкой — её звук идёт из плеера сервиса.', '', 'Чтобы музыка попала в видео, в следующем окне выберите «Эта вкладка» и включите «Поделиться звуком вкладки».', '', 'Отмена — записать видео без музыки.'].join('\n'));
+    if (ok) {
+      try {
+        tabAudio = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { suppressLocalAudioPlayback: false }, preferCurrentTab: true, selfBrowserSurface: 'include', systemAudio: 'include' });
+        if (!tabAudio.getAudioTracks().length) { toast('Звук вкладки не разрешён — видео будет без музыки', 5000); }
+      } catch { toast('Запись звука вкладки отменена — видео будет без музыки', 5000); tabAudio = null; }
+    }
+  }
   const st = $('#rec-status');
   const btns = ['#btn-video', '#btn-zip'].map(s => $(s)); btns.forEach(b => b.disabled = true);
   setPlayUI(true);
   const tick = setInterval(() => { const left = Math.max(0, Math.ceil(day.spec.duration * (1 - parseFloat($('#playhead').style.width || '0') / 100))); st.textContent = `● Записываю воспоминание в реальном времени… осталось ~${left} с`; }, 300);
   try {
-    const blob = await player.play({ record: true });
-    day.video = blob; await db.put(day);
+    const blob = await player.play({ record: true, audioStream: tabAudio });
+    // в кэш кладём только видео со звуком, чтобы немое видео не «прилипло» к дню
+    if (player.recHasAudio) { day.video = blob; await db.put(day); }
+    else toast('Видео сохранено без музыки: для звука добавьте песню аудиофайлом', 6000);
     return blob;
-  } finally { clearInterval(tick); st.textContent = ''; btns.forEach(b => b.disabled = false); setPlayUI(false); }
+  } finally { tabAudio && tabAudio.getTracks().forEach(t => t.stop()); clearInterval(tick); st.textContent = ''; btns.forEach(b => b.disabled = false); setPlayUI(false); }
 }
 function download(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
 $('#btn-video').addEventListener('click', async () => {
@@ -352,6 +450,12 @@ $('#btn-zip').addEventListener('click', async () => {
     download(blob, `${day.folder}.zip`);
     toast('Папка дня сохранена');
   } catch (e) { console.error(e); toast('Не удалось собрать папку: ' + e.message); }
+});
+
+// звук интерфейса: выключен по умолчанию, включает пользователь
+import('./sfx.js').then(({ sfxOn, setSfx }) => {
+  const b = $('#sfx-toggle'); const paint = () => { b.setAttribute('aria-pressed', sfxOn()); b.classList.toggle('on', sfxOn()); };
+  b.addEventListener('click', () => { setSfx(!sfxOn()); paint(); }); paint();
 });
 
 // ---------------- старт ----------------

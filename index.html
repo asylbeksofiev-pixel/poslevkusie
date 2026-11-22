@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@300;400;500;700;900&family=Onest:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Caveat:wght@400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
-<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
 </head>
 <body>
 <div class="grain" aria-hidden="true"></div>
@@ -25,6 +25,7 @@
     <a href="#/diary" data-nav="diary">Дневник</a>
     <a href="#/system" data-nav="system">Система</a>
     <a href="#/new" data-nav="new" class="nav-cta">Записать день</a>
+    <button type="button" class="sfx-toggle" id="sfx-toggle" aria-pressed="false" title="Звуки интерфейса"><i></i><span>звук</span></button>
   </nav>
 </header>
 
@@ -67,18 +68,18 @@
       <p class="big-words" data-words>Через полгода мы листаем снимки и уже не помним ни настроения, ни погоды внутри, ни песни, которая тогда звучала.</p>
       <div class="statement-grid">
         <div><span class="mono">— 01</span><h4>Снимки без воздуха</h4><p>Фото показывают, где мы были, но не то, каково было.</p></div>
-        <div><span class="mono">— 02</span><h4>Песня отдельно</h4><p>Музыка живёт в плейлисте, фото — в галерее, слова — в заметках.</p></div>
-        <div><span class="mono">— 03</span><h4>Фильтры не чувствуют</h4><p>Одинаковая «красота» для дождливого одиночества и шумного праздника.</p></div>
+        <div><span class="mono">— 02</span><h4>Песня отдельно</h4><p>Музыка в плейлисте, фото в галерее, слова в заметках.</p></div>
+        <div><span class="mono">— 03</span><h4>Фильтры не чувствуют</h4><p>Одна «красота» и для дождя, и для праздника.</p></div>
       </div>
     </section>
 
     <section class="steps">
       <p class="kicker mono">02 / как это работает</p>
       <ol class="step-list">
-        <li><span class="sn">01</span><h3>Запись</h3><p>Пара строк о дне, 1–8 фото и песня — файлом или ссылкой.</p></li>
-        <li><span class="sn">02</span><h3>Анализ</h3><p>Слова → настроение. Пиксели → палитра и свет. Звук → темп, лад, энергия.</p></li>
-        <li><span class="sn">03</span><h3>Система</h3><p>Правила выбирают приём, ритм, движение, зерно и голос — и объясняют выбор.</p></li>
-        <li><span class="sn">04</span><h3>Папка дня</h3><p>Живая страница под музыку, название из 3–7 слов, озвучка, архив.</p></li>
+        <li><span class="sn">01</span><h3>Запись</h3><p>Пара строк, 1–8 фото и песня.</p></li>
+        <li><span class="sn">02</span><h3>Анализ</h3><p>Слова → настроение. Фото → палитра. Звук → темп и лад.</p></li>
+        <li><span class="sn">03</span><h3>Система</h3><p>Правила выбирают приём и ритм — и объясняют выбор.</p></li>
+        <li><span class="sn">04</span><h3>Папка дня</h3><p>Живая страница под музыку и название из 3–7 слов.</p></li>
       </ol>
     </section>
 
@@ -88,7 +89,7 @@
           <div class="modes-head">
             <p class="kicker mono">03 / одна система — шесть состояний</p>
             <h2 class="h2">Каждый день — свой приём.<br><em>Один дневник.</em></h2>
-            <p class="modes-note">Приём выбирается правилами из настроения текста, цветов фото и звука песни. Сетка, шрифты и подвал остаются общими — поэтому лента читается как дневник одного человека.</p>
+            <p class="modes-note">Приём выбирают правила. Сетка и шрифты общие — лента читается как один дневник.</p>
           </div>
           <div class="modes-track" id="home-modes"></div>
         </div>
@@ -151,59 +152,82 @@
     </div>
   </section>
 
-  <!-- НОВЫЙ ДЕНЬ -->
+  <!-- НОВЫЙ ДЕНЬ: три шага — слова, свет, звук -->
   <section id="view-new" class="view hidden page narrow">
+    <div class="nd-bg" aria-hidden="true"><i></i><i></i><i></i></div>
     <p class="kicker mono">новая запись</p>
     <h1 class="page-title">Как прошёл день?</h1>
-    <p class="muted lead-s">Расскажите, как рассказали бы близкому другу: погода, свет, запахи, звуки, кто был рядом.</p>
+    <ol class="stepper mono" id="stepper" aria-label="Шаги записи">
+      <li data-s="1" class="on"><b>01</b> слова</li>
+      <li data-s="2"><b>02</b> свет</li>
+      <li data-s="3"><b>03</b> звук</li>
+    </ol>
     <form id="new-form" autocomplete="off" novalidate>
-      <label class="field">
-        <span>Дата</span>
-        <input type="date" id="f-date" required>
-      </label>
-      <label class="field">
-        <span>Запись</span>
-        <textarea id="f-text" rows="6" required placeholder="Гуляли по парку, всё в жёлтых листьях, было холодно, но мы пили какао и долго разговаривали…"></textarea>
-      </label>
-      <div class="field">
-        <span>Фотографии дня <em class="muted">— от 1 до 8</em></span>
-        <label class="drop" id="photo-drop">
-          <input type="file" id="f-photos" accept="image/*" multiple hidden>
-          <span>Перетащите фото сюда или нажмите, чтобы выбрать</span>
-        </label>
-        <div class="thumbs" id="photo-thumbs"></div>
-      </div>
-      <div class="field">
-        <span>Песня дня</span>
-        <div class="tabs" id="song-tabs">
-          <button type="button" data-tab="file" class="active">Аудиофайл</button>
-          <button type="button" data-tab="link">Ссылка</button>
-        </div>
-        <div class="tab-body" data-body="file">
-          <label class="drop small">
-            <input type="file" id="f-audio" accept="audio/*" hidden>
-            <span id="audio-name">mp3 / wav / m4a — песня будет проанализирована: темп, энергия, лад</span>
+      <div class="steps-stage">
+        <fieldset class="step on" data-step="1">
+          <legend class="sr">Шаг 1: запись</legend>
+          <label class="field">
+            <span>Дата</span>
+            <input type="date" id="f-date" required>
           </label>
-        </div>
-        <div class="tab-body hidden" data-body="link">
-          <input type="url" id="f-link" placeholder="YouTube, Spotify, Яндекс Музыка, SoundCloud, Apple Music">
-          <p class="hint" id="link-info" aria-live="polite"></p>
-          <p class="hint">По ссылке звук недоступен для анализа — расскажите о песне, система учтёт жанр, эпоху и характер. Многие клипы на YouTube запрещают встраивание на другие сайты — аудиофайл надёжнее всего.</p>
-          <div class="row wrap">
-            <label class="pill-q">Характер
-              <select id="f-energy"><option value="">не знаю</option><option value="calm">спокойная</option><option value="mid">средняя</option><option value="high">энергичная</option></select>
+          <label class="field">
+            <span>Запись <em>— как рассказали бы другу: погода, свет, звуки, кто рядом</em></span>
+            <textarea id="f-text" rows="6" required placeholder="Гуляли по парку, всё в жёлтых листьях, было холодно, но мы пили какао и долго разговаривали…"></textarea>
+          </label>
+          <div class="live" id="live-text" aria-live="polite"><span class="live-h mono">система слышит</span><span class="live-body muted">начните писать…</span></div>
+        </fieldset>
+
+        <fieldset class="step" data-step="2">
+          <legend class="sr">Шаг 2: фотографии</legend>
+          <div class="field">
+            <span>Фотографии дня <em>— от 1 до 8, любой ориентации</em></span>
+            <label class="drop" id="photo-drop">
+              <input type="file" id="f-photos" accept="image/*" multiple hidden>
+              <span class="drop-ico" aria-hidden="true"></span>
+              <span>Перетащите фото или нажмите, чтобы выбрать</span>
             </label>
-            <label class="pill-q">Настроение
-              <select id="f-mode"><option value="">не знаю</option><option value="major">светлая</option><option value="minor">грустная / тёмная</option></select>
-            </label>
+            <div class="thumbs" id="photo-thumbs"></div>
           </div>
-        </div>
-        <input type="text" id="f-songmeta" class="mt" placeholder="Исполнитель — Название, жанр, год (Frank Sinatra — Autumn Leaves, джаз, 1957)">
+          <div class="live" id="live-photo" aria-live="polite"><span class="live-h mono">палитра дня</span><span class="live-body muted">появится из ваших снимков</span></div>
+        </fieldset>
+
+        <fieldset class="step" data-step="3">
+          <legend class="sr">Шаг 3: песня</legend>
+          <div class="field">
+            <span>Песня дня</span>
+            <div class="tabs" id="song-tabs">
+              <button type="button" data-tab="file" class="active">Аудиофайл</button>
+              <button type="button" data-tab="link">Ссылка</button>
+            </div>
+            <div class="tab-body" data-body="file">
+              <label class="drop small">
+                <input type="file" id="f-audio" accept="audio/*" hidden>
+                <span id="audio-name">mp3 / wav / m4a — услышим темп, лад и энергию</span>
+              </label>
+            </div>
+            <div class="tab-body hidden" data-body="link">
+              <input type="url" id="f-link" placeholder="YouTube, Spotify, Яндекс Музыка, SoundCloud, Apple Music">
+              <p class="hint" id="link-info" aria-live="polite"></p>
+              <p class="hint">Звук по ссылке недоступен для анализа — опишите песню ниже. Надёжнее всего аудиофайл.</p>
+              <div class="row wrap">
+                <label class="pill-q">Характер
+                  <select id="f-energy"><option value="">не знаю</option><option value="calm">спокойная</option><option value="mid">средняя</option><option value="high">энергичная</option></select>
+                </label>
+                <label class="pill-q">Настроение
+                  <select id="f-mode"><option value="">не знаю</option><option value="major">светлая</option><option value="minor">грустная / тёмная</option></select>
+                </label>
+              </div>
+            </div>
+            <input type="text" id="f-songmeta" class="mt" placeholder="Исполнитель — Название, жанр, год (Frank Sinatra — Autumn Leaves, джаз, 1957)">
+          </div>
+          <p class="hint">Хранится только в этом браузере, от песни — фрагмент до 45 с. Анализ настроения — художественный приём, не диагностика.</p>
+        </fieldset>
       </div>
-      <div class="row">
-        <button type="submit" class="btn-box big" id="btn-create">Сохранить день</button>
+      <div class="step-nav">
+        <button type="button" class="btn-ghost" id="btn-back" hidden>← назад</button>
+        <button type="button" class="btn-box big" id="btn-next">Дальше →</button>
+        <button type="submit" class="btn-box big hidden" id="btn-create">Проявить день</button>
       </div>
-      <p class="hint">Всё хранится только в этом браузере. От аудиофайла остаётся только фрагмент до 45 секунд, который звучит в воспоминании: песня целиком не сохраняется. Анализ эмоций — художественный приём, а не психологическая диагностика.</p>
     </form>
     <div id="progress" class="progress hidden">
       <div class="progress-orb"></div>
@@ -217,7 +241,7 @@
       <div class="stage-wrap">
         <div class="stage-glow" id="stage-glow"></div>
         <div class="stage" id="stage">
-          <canvas id="canvas" width="720" height="1280"></canvas>
+          <canvas id="canvas" width="1080" height="1920"></canvas>
           <button class="play-overlay" id="play-overlay" aria-label="Воспроизвести">▶</button>
         </div>
         <div class="player-bar">
@@ -241,20 +265,22 @@
         <blockquote id="d-text"></blockquote>
         <div class="photos-strip" id="d-photos"></div>
 
-        <h3 class="side-h mono">почему этот день выглядит так</h3>
-        <ul class="explain" id="d-explain"></ul>
+        <h3 class="side-h mono">почему он выглядит так</h3>
+        <ul class="cx-rules d-rules" id="d-rules"></ul>
+        <div class="d-pal-row"><div class="palette" id="d-palette"></div></div>
+        <details class="d-more">
+          <summary class="mono">подробный разбор · голос озвучки</summary>
+          <ul class="explain" id="d-explain"></ul>
+          <p id="d-voice" class="muted d-voice"></p>
+        </details>
 
-        <h3 class="side-h mono">палитра дня</h3>
-        <div class="palette" id="d-palette"></div>
-
-        <h3 class="side-h mono">голос озвучки</h3>
-        <p id="d-voice" class="muted"></p>
-
-        <div class="row wrap actions">
+        <div class="actions">
           <button class="btn-box" id="btn-video">Видео с музыкой</button>
-          <button class="btn-ghost" id="btn-zip">Папка дня .zip</button>
-          <button class="btn-ghost" id="btn-cover">Обложка</button>
-          <button class="btn-ghost danger" id="btn-delete">Удалить</button>
+          <div class="actions-sub">
+            <button class="btn-ghost" id="btn-zip">Папка дня .zip</button>
+            <button class="btn-ghost" id="btn-cover">Обложка</button>
+            <button class="btn-ghost danger" id="btn-delete">Удалить</button>
+          </div>
         </div>
         <p class="hint" id="rec-status"></p>
         <div class="day-nav mono">
@@ -273,10 +299,11 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
-<script src="https://unpkg.com/lenis@1.1.13/dist/lenis.min.js"></script>
+<!-- библиотеки лежат на нашем сайте: страница не зависит от чужих CDN -->
+<script src="vendor/gsap.min.js"></script>
+<script src="vendor/ScrollTrigger.min.js"></script>
+<script src="vendor/lenis.min.js"></script>
+<script src="vendor/jszip.min.js" defer></script>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

@@ -13,7 +13,7 @@ export function initMotion() {
   }
   initCursor();
 }
-export function scrollTop() { if (lenis) lenis.scrollTo(0, { immediate: true }); else window.scrollTo(0, 0); }
+export function scrollTop() { if (lenis) lenis.scrollTo(0, { immediate: true, force: true }); window.scrollTo(0, 0); }
 export function onScroll(fn) { if (lenis) lenis.on('scroll', e => fn(e.scroll)); else window.addEventListener('scroll', () => fn(window.scrollY), { passive: true }); }
 
 function initCursor() {
@@ -60,7 +60,10 @@ export function enterHome(wave) {
       gsap.to(track, { x: () => -dist(), ease: 'none', scrollTrigger: { trigger: '.modes-sec', start: 'top top', end: () => '+=' + dist(), pin: '.modes-pin', scrub: 0.8, invalidateOnRefresh: true } });
     });
   });
-  requestAnimationFrame(() => ScrollTrigger.refresh());
+  // ScrollTrigger запоминает прокрутку и восстанавливает её при refresh() — из-за этого при возврате на главную
+  // страница «прыгала» в середину с полупрозрачным заголовком. Сбрасываем память и начинаем сверху.
+  ScrollTrigger.clearScrollMemory && ScrollTrigger.clearScrollMemory('manual');
+  requestAnimationFrame(() => { ScrollTrigger.refresh(); scrollTop(); });
 }
 export function refreshScroll() { if (ST()) requestAnimationFrame(() => ST().refresh()); }
 export function leaveHome() {

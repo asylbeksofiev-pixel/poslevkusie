@@ -5,6 +5,9 @@
 import { rng, hashStr, clamp, lerp, smooth, rgba, rgb2hsl, hsl2rgb, lum, mix, ROMAN } from '../util.js';
 
 export const W = 720, H = 1280, MARGIN = 44;
+// Страница размечена в 720×1280, но рисуется в 1,5 раза плотнее (1080×1920): чётко на экранах с высокой плотностью пикселей.
+export const SCALE = 1.5;
+const S = SCALE;
 const BASE = { x: MARGIN, y: 124, w: W - MARGIN * 2, h: 748 };
 
 const FONTS = [
@@ -40,6 +43,12 @@ function eachPixel(c, fn) {
   for (let i = 0; i < d.length; i += 4) { const o = fn(d[i], d[i + 1], d[i + 2], i / 4); d[i] = o[0]; d[i + 1] = o[1]; d[i + 2] = o[2]; }
   x.putImageData(id, 0, 0);
   return c;
+}
+// вписать фото в область, сохранив пропорции (без обрезки)
+function fitRect(aspect, R) {
+  let w = R.w, h = w / aspect;
+  if (h > R.h) { h = R.h; w = h * aspect; }
+  return { x: R.x + (R.w - w) / 2, y: R.y + (R.h - h) / 2, w, h };
 }
 function rectFor(spec) {
   const m = spec.mode;
@@ -129,20 +138,23 @@ const TECH = {
 
   // ---- «Ма»: приглушённое фото, растворённые края ----
   ma(bmp, R, spec) {
-    const c = cover(bmp, R.w, R.h);
+    const F = fitRect(bmp.width / bmp.height, R);
+    const c = cover(bmp, F.w * S, F.h * S);
     const paper = spec.page.bg;
     eachPixel(c, (r, g, b) => { const l = (r * 0.3 + g * 0.59 + b * 0.11); const k = 0.32; let o = [lerp(l, r, k), lerp(l, g, k), lerp(l, b, k)]; o = o.map(v => v * 0.92 + 18); return mix(o, paper, 0.05); });
     const x = c.getContext('2d');
     const fog = (x0, y0, x1, y1) => { const g = x.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, rgba(paper, 1)); g.addColorStop(1, rgba(paper, 0)); x.fillStyle = g; x.fillRect(0, 0, c.width, c.height); };
     const f = 0.12;
     fog(0, 0, 0, c.height * f); fog(0, c.height, 0, c.height * (1 - f)); fog(0, 0, c.width * f, 0); fog(c.width, 0, c.width * (1 - f), 0);
-    return { a: c };
+    return { a: c, x: F.x, y: F.y, w: F.w, h: F.h };
   },
 
   // ---- Плёнка: выцветшая кривая, виньетка ----
   film(bmp, R, spec) {
     const ins = 20, bottom = 78;
-    const c = cover(bmp, R.w - ins * 2, R.h - ins - bottom);
+    const fr = fitRect(bmp.width / bmp.height, { x: 0, y: 0, w: R.w - ins * 2, h: R.h - ins - bottom });
+    const iw = fr.w, ih = fr.h, pw = iw + ins * 2, ph = ih + ins + bottom;
+    const c = cover(bmp, iw * S, ih * S);
     const cool = spec.mood.warmth < -0.2;
     eachPixel(c, (r, g, b) => {
       const l = (r * 0.3 + g * 0.59 + b * 0.11);
@@ -154,19 +166,21 @@ const TECH = {
     g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(20,10,0,0.45)');
     x.fillStyle = g; x.fillRect(0, 0, c.width, c.height);
     // отпечаток с белой рамкой
-    const p = mk(R.w, R.h), px = p.getContext('2d');
-    px.fillStyle = '#f7f3ea'; px.fillRect(0, 0, R.w, R.h);
-    px.drawImage(c, ins, ins);
-    return { a: p, inner: { x: ins, y: ins, w: c.width, h: c.height } };
+    const p = mk(pw * S, ph * S), px = p.getContext('2d');
+    px.fillStyle = '#f7f3ea'; px.fillRect(0, 0, p.width, p.height);
+    px.drawImage(c, ins * S, ins * S);
+    return { a: p, w: pw, h: ph, inner: { x: ins, y: ins, w: iw, h: ih } };
   },
 
   // ---- Коллаж: рваный фрагмент с растром ----
   collage(bmp, R, spec, seed) {
     const r = rng(seed);
-    const pw = R.w * lerp(0.58, 0.78, r()), ph = pw * lerp(0.8, 1.25, r());
-    const c = cover(bmp, pw, ph);
+    const asp = clamp(bmp.width / bmp.height, 0.55, 1.9);
+    let pw = R.w * lerp(0.58, 0.78, r()), ph = pw / asp;
+    if (ph > R.h * 0.72) { ph = R.h * 0.72; pw = ph * asp; }
+    const c = cover(bmp, pw * S, ph * S);
     eachPixel(c, (rr, g, b) => [clamp((rr - 128) * 1.18 + 132, 0, 255), clamp((g - 128) * 1.18 + 128, 0, 255), clamp((b - 128) * 1.18 + 122, 0, 255)]);
-    const m = mk(pw + 20, ph + 20), x = m.getContext('2d');
+    const m = mk((pw + 20) * S, (ph + 20) * S), x = m.getContext('2d'); x.scale(S, S);
     // рваный край
     x.beginPath();
     const jag = (x0, y0, x1, y1) => { const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 10); for (let i = 1; i <= n; i++) { const t = i / n; x.lineTo(lerp(x0, x1, t) + (r() - 0.5) * 5, lerp(y0, y1, t) + (r() - 0.5) * 5); } };
@@ -174,7 +188,7 @@ const TECH = {
     x.closePath();
     x.fillStyle = '#f4efe4'; x.fill();
     x.save(); x.clip(); x.drawImage(c, 14, 14, pw - 8, ph - 8); x.restore();
-    return { a: m, rot: (r() - 0.5) * 0.24, ox: (r() - 0.5) * (R.w - pw) * 0.9, oy: (r() - 0.5) * (R.h - ph) * 0.8 };
+    return { a: m, w: pw + 20, h: ph + 20, rot: (r() - 0.5) * 0.24, ox: (r() - 0.5) * (R.w - pw) * 0.9, oy: (r() - 0.5) * (R.h - ph) * 0.8 };
   },
 };
 
@@ -192,6 +206,11 @@ export class Memory {
     const spec = this.spec;
     this.bitmaps = [];
     for (const b of this.day.photos) this.bitmaps.push(await createImageBitmap(b));
+    // окно фото принимает пропорции главного снимка: горизонтальное фото не режется в вертикаль
+    if (['monet', 'matisse', 'kandinsky'].includes(spec.mode) && this.bitmaps.length) {
+      const b0 = this.bitmaps[0], asp = clamp(b0.width / b0.height, 0.5, 2), ra = this.R.w / this.R.h;
+      if (Math.abs(Math.log(asp / ra)) > 0.15) this.R = fitRect(asp, this.R);
+    }
     this.layers = [];
     for (let i = 0; i < this.bitmaps.length; i++) {
       this.layers.push(TECH[spec.mode](this.bitmaps[i], this.R, spec, this.seed + i * 101));
@@ -284,6 +303,8 @@ export class Memory {
     const intro = clamp(t / 1.6);
 
     ctx.save();
+    ctx.setTransform(S, 0, 0, S, 0, 0);
+    ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(this.paper, 0, 0);
     const fg = sp.page.fg, sub = sp.page.sub;
 
@@ -393,7 +414,7 @@ export class Memory {
     if (f.n > 1) { if (f.local > 1 - fade / 2) a = 1 - smooth((f.local - (1 - fade / 2)) / (fade / 2)); else if (f.local < fade / 2 && f.t > f.seg) a = smooth(f.local / (fade / 2)); }
     ctx.save(); ctx.globalAlpha *= a;
     ctx.translate(Math.sin(f.t * 0.15) * 4, 0);
-    ctx.drawImage(this.layers[f.idx].a, R.x, R.y);
+    { const L = this.layers[f.idx]; ctx.drawImage(L.a, L.x, L.y, L.w, L.h); }
     ctx.restore();
     // энсо — круг одним движением кисти, рисуется в начале
     const p = clamp((f.t - 0.6) / 3.2);
@@ -421,9 +442,9 @@ export class Memory {
     const R = this.R, L = this.layers[f.idx];
     const rot = (f.idx % 2 ? 1 : -1) * 0.018;
     ctx.save();
-    ctx.translate(R.x + R.w / 2, R.y + R.h / 2); ctx.rotate(rot); ctx.translate(-R.w / 2, -R.h / 2);
+    ctx.translate(R.x + R.w / 2, R.y + R.h / 2); ctx.rotate(rot); ctx.translate(-L.w / 2, -L.h / 2);
     ctx.shadowColor = 'rgba(40,25,10,0.35)'; ctx.shadowBlur = 24; ctx.shadowOffsetY = 10;
-    ctx.drawImage(L.a, 0, 0); ctx.shadowColor = 'transparent';
+    ctx.drawImage(L.a, 0, 0, L.w, L.h); ctx.shadowColor = 'transparent';
     // засветки
     const ins = L.inner;
     ctx.save(); ctx.beginPath(); ctx.rect(ins.x, ins.y, ins.w, ins.h); ctx.clip();
@@ -443,7 +464,7 @@ export class Memory {
     ctx.restore();
     // подпись на рамке отпечатка
     ctx.font = '400 30px "Caveat"'; ctx.fillStyle = 'rgba(40,36,30,0.75)';
-    ctx.fillText(`${f.idx + 1} / ${f.n}`, R.w - 80, R.h - 26);
+    ctx.fillText(`${f.idx + 1} / ${f.n}`, L.w - 80, L.h - 26);
     ctx.restore();
     // вспышка-переход
     const flash = f.n > 1 ? Math.max(0, 1 - (f.local * f.seg) / 0.35) * (f.t > f.seg ? 1 : 0) : 0;
@@ -468,9 +489,9 @@ export class Memory {
       ctx.globalAlpha *= j === 0 ? land : 1 - j * 0.08;
       ctx.translate(R.x + R.w / 2 + ox, R.y + R.h / 2 + oy); ctx.rotate(rot); ctx.scale(s, s);
       ctx.shadowColor = 'rgba(30,20,10,0.3)'; ctx.shadowBlur = 16; ctx.shadowOffsetY = 6;
-      ctx.drawImage(L.a, -L.a.width / 2, -L.a.height / 2); ctx.shadowColor = 'transparent';
+      ctx.drawImage(L.a, -L.w / 2, -L.h / 2, L.w, L.h); ctx.shadowColor = 'transparent';
       // скотч
-      ctx.fillStyle = 'rgba(236,224,190,0.75)'; ctx.rotate(-0.5); ctx.fillRect(-L.a.width * 0.42 - 30, -L.a.height * 0.2, 80, 22); ctx.restore();
+      ctx.fillStyle = 'rgba(236,224,190,0.75)'; ctx.rotate(-0.5); ctx.fillRect(-L.w * 0.42 - 30, -L.h * 0.2, 80, 22); ctx.restore();
     }
     // вырезки слов
     const words = this.decor;
